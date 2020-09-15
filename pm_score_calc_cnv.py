@@ -274,34 +274,9 @@ if __name__ == "__main__":
         args = checkArguments()
         in_api_key = args.key
 
-        #_user = "rgarcia@redhat.com"
-        #_password = "R3dH4t4M32!"
         #bzapi = RHBugzilla(url=URL, user=_user, password=_password)
 
         bzapi = RHBugzilla(url=URL,api_key=in_api_key)
-
-        query_old = {
-            'bug_status': [
-                'NEW', 'ASSIGNED', 'POST', 'MODIFIED', 'ON_QA', 'VERIFIED'
-            ],
-            #'f1': 'OP',
-            'f2': 'product',
-            #'f3': 'classification',
-            #'f4': 'CP',
-            #'f5': 'OP',
-            # 'f6': 'days_elapsed',
-            #'f6': 'delta_ts',
-            #'j1': 'OR',
-            'o2': 'equals',
-            #'o3': 'equals',
-            # 'o6': 'lessthaneq',
-            #'o6': 'greaterthaneq',
-            'v2': 'Container Native Virtualization (CNV)',
-            #'v2': 'Red Hat Enterprise Virtualization Manager',
-            #'v3': 'oVirt',
-            # 'v6': '1'
-            #'v6': '-1h'
-        }
 
         query = {
             'bug_status': [
