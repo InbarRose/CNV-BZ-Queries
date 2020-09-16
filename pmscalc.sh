@@ -7,3 +7,6 @@
 #update bugs modified in the last hour and keep logs
 echo "$(date)">> /tmp/pmscalc.log 2>&1; . ~/pmscalc_vars; /usr/bin/python "$PMSCALC_SCRIPT" -k "$PMSCALC_BZ_KEY"  -p hours -v 1 > $PMSCALC_OUT; if [ $? -eq 0 ]; then echo "$(date): success!">> /tmp/pmscalc.log 2>&1; else echo "$(date): something bad happened">> /tmp/pmscalc.log 2>&1; fi; rm $PMSCALC_OUT;
 
+#update bugs modified in the last 7 days and keep logs
+echo "$(date)">> /tmp/pmscalc.log 2>&1; . ~/pmscalc_vars; /usr/bin/python "$PMSCALC_SCRIPT" -k "$PMSCALC_BZ_KEY"  -p days  -v 7 > $PMSCALC_OUT; if [ $? -eq 0 ]; then echo "$(date): success!">> /tmp/pmscalc.log 2>&1; else echo "$(date): something bad happened">> /tmp/pmscalc.log 2>&1; fi; rm $PMSCALC_OUT;
+
