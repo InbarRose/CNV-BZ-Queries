@@ -17,10 +17,10 @@ import os
 
 
 class EnvDefault(argparse.Action):
-    def __init__(self, envvar, required=True, default=None, **kwargs):
-        if not default and envvar:
-            if envvar in os.environ:
-                default = os.environ[envvar]
+    def __init__(self, env_var, required=True, default=None, **kwargs):
+        if not default and env_var:
+            if env_var in os.environ:
+                default = os.environ[env_var]
         if required and default:
             required = False
         super(EnvDefault, self).__init__(default=default, required=required,
@@ -35,7 +35,7 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
 URL = "bugzilla.redhat.com"
-NOTICKETS_KW = "NoActiveCustomerTickets"
+NO_TICKETS_KW = "NoActiveCustomerTickets"
 
 REGRESSION = 600
 BLOCKER = 1500
@@ -66,7 +66,7 @@ PRIORITY_SCORE = {
 class BugScore(object):
     def __init__(self, bz_id):
 
-        self.bug = bzapi.getbug(bz_id, include_fields=['_default', '_custom', 'flags', 'external_bugs'])
+        self.bug = bz_api.getbug(bz_id, include_fields=['_default', '_custom', 'flags', 'external_bugs'])
 
     def calc_regression(self):
         score = 0
@@ -102,7 +102,7 @@ class BugScore(object):
         #        "Calculation debugs: CEEBumpPMScore internal whiteboard: {}".format(score))
         return score
 
-    def calc_cirflag(self):
+    def calc_cir_flag(self):
         score = 0
         if self.bug.get_flag_status('cee_cir') == '+':
             score = CIR_FLAG
@@ -147,26 +147,26 @@ class BugScore(object):
                     ticket_open += 1
                     ticket_count += 1
                     ticket_totals += CUSTOMER_TICKET_OPEN
-                    if NOTICKETS_KW in self.bug.cf_internal_whiteboard:
+                    if NO_TICKETS_KW in self.bug.cf_internal_whiteboard:
                         foo = self.bug.cf_internal_whiteboar
-                        foo = foo.replace(", " + NOTICKETS_KW, "").replace(NOTICKETS_KW, "")
+                        foo = foo.replace(", " + NO_TICKETS_KW, "").replace(NO_TICKETS_KW, "")
                         self.bug.cf_internal_whiteboard = foo
                         print("    NoCustomerTickets flag removed")
-                        bzapi.update_bugs(self.bug.id, {
+                        bz_api.update_bugs(self.bug.id, {
                             'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
                             'nomail': 1}
-                                          )
+                                           )
         if ticket_open == 0 and ticket_count != 0:
-            if NOTICKETS_KW not in self.bug.cf_internal_whiteboard:
+            if NO_TICKETS_KW not in self.bug.cf_internal_whiteboard:
                 if self.bug.cf_internal_whiteboard.strip() == "":
-                    self.bug.cf_internal_whiteboard = NOTICKETS_KW
+                    self.bug.cf_internal_whiteboard = NO_TICKETS_KW
                 else:
-                    self.bug.cf_internal_whiteboard = self.bug.cf_internal_whiteboard + ", " + NOTICKETS_KW
+                    self.bug.cf_internal_whiteboard = self.bug.cf_internal_whiteboard + ", " + NO_TICKETS_KW
                 print("    NoCustomerTickets flag added")
-                bzapi.update_bugs(self.bug.id, {
+                bz_api.update_bugs(self.bug.id, {
                     'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
                     'nomail': 1}
-                                  )
+                                   )
         score = ticket_count * ticket_totals
         # if score:
         #    print("Calculation debugs: Tickets: {}".format(score))
@@ -181,14 +181,14 @@ class BugScore(object):
         score.append(self.calc_tickets())
         score.append(self.calc_automation_blocker())
         score.append(self.calc_cee())
-        score.append(self.calc_cirflag())
+        score.append(self.calc_cir_flag())
         return sum(score)
 
     def update(self):
         score = self.calc_score()
         print("    New Score   = %s" % score)
         if int(self.bug.cf_pm_score) != score:
-            bzapi.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
+            bz_api.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
             print("    New score was updated")
         else:
             print("    New score was not updated")
@@ -197,7 +197,7 @@ class BugScore(object):
 # verify parameters
 # - must have specified... 
 #   - config file
-def verifyParameters():
+def verify_parameters():
     try:
         # print (len(sys.argv))
         if len(sys.argv) <= 1:
@@ -209,7 +209,7 @@ def verifyParameters():
             # raise Exception("Just testing...")
     except ValueError as e:
         print(str(e))
-        print(getUsage())
+        print(get_usage())
         raise
     except Exception as e:
         print(str(e))
@@ -217,22 +217,22 @@ def verifyParameters():
         raise
 
 
-def getUsage():
+def get_usage():
     return "usage " + __file__ + "  <BUGZILLA_API_KEY>"
 
 
-def utcformat(dt, timespec='milliseconds'):
+def utc_format(dt, timespec='milliseconds'):
     # """convert datetime to string in UTC format (YYYY-mm-ddTHH:MM:SS.mmmZ)"""
     iso_str = dt.astimezone(timezone.utc).isoformat('T', timespec)
     return iso_str.replace('+00:00', 'Z')
 
 
-def fromutcformat(utc_str, tz=None):
+def from_utc_format(utc_str, tz=None):
     iso_str = utc_str.replace('Z', '+00:00')
     return datetime.fromisoformat(iso_str).astimezone(tz)
 
 
-def checkArguments():
+def check_arguments():
     parser = argparse.ArgumentParser(description=__file__ + ' command line arguments')
     parser.add_argument('-k', '--key', required=True, type=str, action=EnvDefault, envvar='BZ_API_KEY',
                         help='The Bugzilla API key')
@@ -243,35 +243,35 @@ def checkArguments():
                         envvar='TIME_DELTA_VALUE',
                         help='The time delta value: number of [hours|days]. '
                              'For hours use 1 to 23, and for days use 1 to 30.')
-    args = parser.parse_args()
+    parser_args = parser.parse_args()
 
     # check passed arguments
     valid_time_delta_params = ['hours', 'days']
     valid_hours = [1, 23]
     valid_days = [1, 30]
 
-    errormessage = ""
+    error_msg = ""
 
-    if args.time_delta_param is not None:
-        if args.time_delta_param in valid_time_delta_params:
-            if args.time_delta_value is None:
-                errormessage = "The time_delta_value must be specified"
+    if parser_args.time_delta_param is not None:
+        if parser_args.time_delta_param in valid_time_delta_params:
+            if parser_args.time_delta_value is None:
+                error_msg = "The time_delta_value must be specified"
             else:
-                if args.time_delta_param == "hours":
-                    if args.time_delta_value < valid_hours[0] or args.time_delta_value > valid_hours[1]:
-                        errormessage = "For hours use values from " + str(valid_hours[0]) + " to " + str(valid_hours[1])
+                if parser_args.time_delta_param == "hours":
+                    if parser_args.time_delta_value < valid_hours[0] or parser_args.time_delta_value > valid_hours[1]:
+                        error_msg = "For hours use values from " + str(valid_hours[0]) + " to " + str(valid_hours[1])
                 else:
-                    if args.time_delta_value < valid_days[0] or args.time_delta_value > valid_days[1]:
-                        errormessage = "For days use values from " + str(valid_days[0]) + " to " + str(valid_days[1])
+                    if parser_args.time_delta_value < valid_days[0] or parser_args.time_delta_value > valid_days[1]:
+                        error_msg = "For days use values from " + str(valid_days[0]) + " to " + str(valid_days[1])
         else:
-            errormessage = "Invalid time_delta_param. Valid values include: " + str(valid_time_delta_params)
+            error_msg = "Invalid time_delta_param. Valid values include: " + str(valid_time_delta_params)
 
-    if errormessage != "":
-        print(errormessage)
+    if error_msg != "":
+        print(error_msg)
         parser.print_help()
         parser.exit(1)
     else:
-        return args
+        return parser_args
 
 
 if __name__ == "__main__":
@@ -280,12 +280,12 @@ if __name__ == "__main__":
     # def main():
     # verify parameters
     try:
-        args = checkArguments()
+        args = check_arguments()
         in_api_key = args.key
 
-        # bzapi = RHBugzilla(url=URL, user=_user, password=_password)
+        # bz_api = RHBugzilla(url=URL, user=_user, password=_password)
 
-        bzapi = RHBugzilla(url=URL, api_key=in_api_key)
+        bz_api = RHBugzilla(url=URL, api_key=in_api_key)
 
         query = {
             'bug_status': [
@@ -296,15 +296,15 @@ if __name__ == "__main__":
         }
 
         # check to see if the user specified a time delta for the query
-        lastchangetime = datetime.now()
+        last_change_time = datetime.now()
         if args.time_delta_param is not None:
             if args.time_delta_param == "hours":
-                lastchangetime = lastchangetime - timedelta(hours=args.time_delta_value)
+                last_change_time = last_change_time - timedelta(hours=args.time_delta_value)
             else:
-                lastchangetime = lastchangetime - timedelta(days=args.time_delta_value)
-            query['last_change_time'] = utcformat(lastchangetime, timespec='seconds')
+                last_change_time = last_change_time - timedelta(days=args.time_delta_value)
+            query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
 
-        bugs = bzapi.query(query)
+        bugs = bz_api.query(query)
         print("Number of BZ to update: %s" % len(bugs))
         print("Bug ID, before, after")
         i = 1
@@ -315,5 +315,5 @@ if __name__ == "__main__":
             print(str(i) + "," + str(bug.id) + "," + bug.cf_pm_score + "," + str(bz.calc_score()))
             bz.update()
             i = i + 1
-    except Exception as e:
-        print("exception in main..." + str(e))
+    except Exception as exc:
+        print("exception in main..." + str(exc))
