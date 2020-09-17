@@ -1,18 +1,49 @@
 #!/usr/bin/env python
-
 from __future__ import division, print_function
+
 import ssl
+import argparse
+import os
+import datetime
 
 # import bugzilla
 from bugzilla.rhbugzilla import RHBugzilla
 
-from datetime import datetime, timezone, timedelta
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
 
-import argparse
-import os
+# constants
+URL = "bugzilla.redhat.com"
+NO_TICKETS_KW = "NoActiveCustomerTickets"
+
+# Scores
+REGRESSION = 600
+BLOCKER = 1500
+AUTOMATION_BLOCKER = 1100
+CUSTOMER_TICKET_OPEN = 400
+CUSTOMER_TICKET_CLOSED = 100
+CEEBumpPMScore = 1500
+CIR_FLAG = 500
+SEVERITY_SCORE = {
+    'urgent': 2970,
+    'high': 660,
+    'medium': 330,
+    'low': 10,
+    'unspecified': 0
+}
+PRIORITY_SCORE = {
+    'urgent': 2700,
+    'high': 600,
+    'medium': 300,
+    'low': 10,
+    'unspecified': 0
+}
 
 
 class EnvDefault(argparse.Action):
+    """allows using environment variables instead of passing arguments directly"""
+
     def __init__(self, env_var, required=True, default=None, **kwargs):
         if not default and env_var:
             if env_var in os.environ:
@@ -24,39 +55,6 @@ class EnvDefault(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
-
-
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
-
-URL = "bugzilla.redhat.com"
-NO_TICKETS_KW = "NoActiveCustomerTickets"
-
-REGRESSION = 600
-BLOCKER = 1500
-AUTOMATION_BLOCKER = 1100
-
-CUSTOMER_TICKET_OPEN = 400
-CUSTOMER_TICKET_CLOSED = 100
-CEEBumpPMScore = 1500
-CIR_FLAG = 500
-
-SEVERITY_SCORE = {
-    'urgent': 2970,
-    'high': 660,
-    'medium': 330,
-    'low': 10,
-    'unspecified': 0
-}
-
-PRIORITY_SCORE = {
-    'urgent': 2700,
-    'high': 600,
-    'medium': 300,
-    'low': 10,
-    'unspecified': 0
-}
 
 
 class BugScoreUpdater(object):
@@ -72,6 +70,15 @@ class BugScoreUpdater(object):
     def query_bugs(self, query):
         bugs = self.bz_api.query(query)
         return bugs
+
+    def perform_bug_score_updates(self, query):
+        bugs = self.query_bugs(query)
+        print(f"Number of BZ to update: {len(bugs)}")
+        print("Index, Bug ID, before, after")
+        for idx, bug in enumerate(bugs):
+            bz = self.get_bug_score(bug.id)
+            print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
+            bz.update()
 
 
 class BugScore(object):
@@ -166,18 +173,21 @@ class BugScore(object):
         return score
 
     def calc_score(self):
-        score = list()
-        score.append(self.calc_regression())
-        score.append(self.calc_blocker())
-        score.append(self.calc_severity())
-        score.append(self.calc_priority())
-        score.append(self.calc_tickets())
-        score.append(self.calc_automation_blocker())
-        score.append(self.calc_cee())
-        score.append(self.calc_cir_flag())
+        """run all calculations and provide final score"""
+        score = [
+            self.calc_regression(),
+            self.calc_blocker(),
+            self.calc_severity(),
+            self.calc_priority(),
+            self.calc_tickets(),
+            self.calc_automation_blocker(),
+            self.calc_cee(),
+            self.calc_cir_flag()
+        ]
         return sum(score)
 
     def update(self):
+        """perform score calculation and then update bug with new score"""
         score = self.calc_score()
         print(f"    New Score   = {score}")
         if int(self.bug.cf_pm_score) != score:
@@ -189,13 +199,14 @@ class BugScore(object):
 
 def utc_format(dt, timespec='milliseconds'):
     """convert datetime to string in UTC format (YYYY-mm-ddTHH:MM:SS.mmmZ)"""
-    iso_str = dt.astimezone(timezone.utc).isoformat('T', timespec)
+    iso_str = dt.astimezone(datetime.timezone.utc).isoformat('T', timespec)
     return iso_str.replace('+00:00', 'Z')
 
 
 def check_arguments():
-    parser = argparse.ArgumentParser(description=__file__ + ' command line arguments')
-    parser.add_argument('-k', '--key', required=True, type=str, action=EnvDefault, envvar='BZ_API_KEY',
+    parser = argparse.ArgumentParser(description=f'{__file__} command line arguments')
+    parser.add_argument('-k', '--key', required=True, type=str, action=EnvDefault,
+                        envvar='BZ_API_KEY',
                         help='The Bugzilla API key')
     parser.add_argument('-p', '--time_delta_param', required=False, type=str, action=EnvDefault,
                         envvar='TIME_DELTA_PARAM',
@@ -219,10 +230,10 @@ def check_arguments():
                 error_msg = "The time_delta_value must be specified"
             else:
                 if parser_args.time_delta_param == "hours":
-                    if parser_args.time_delta_value < valid_hours[0] or parser_args.time_delta_value > valid_hours[1]:
+                    if not valid_hours[0] <= parser_args.time_delta_value <= valid_hours[1]:
                         error_msg = f"For hours use values from {valid_hours[0]} tp {valid_hours[1]}"
                 else:
-                    if parser_args.time_delta_value < valid_days[0] or parser_args.time_delta_value > valid_days[1]:
+                    if not valid_days[0] <= parser_args.time_delta_value <= valid_days[1]:
                         error_msg = f"For days use values from {valid_days[0]} to {valid_days[1]}"
         else:
             error_msg = f"Invalid time_delta_param. Valid values include: {valid_time_delta_params}"
@@ -235,12 +246,7 @@ def check_arguments():
         return parser_args
 
 
-def main():
-    args = check_arguments()
-
-    bz_api = RHBugzilla(url=URL, api_key=args.key)
-    bsu = BugScoreUpdater(bz_api)
-
+def make_query(args):
     query = {
         'bug_status': [
             'NEW', 'ASSIGNED', 'POST', 'MODIFIED', 'ON_QA', 'VERIFIED'
@@ -250,21 +256,25 @@ def main():
     }
 
     # check to see if the user specified a time delta for the query
-    last_change_time = datetime.now()
+    last_change_time = datetime.datetime.now()
     if args.time_delta_param is not None:
         if args.time_delta_param == "hours":
-            last_change_time = last_change_time - timedelta(hours=args.time_delta_value)
+            last_change_time = last_change_time - datetime.timedelta(hours=args.time_delta_value)
         else:
-            last_change_time = last_change_time - timedelta(days=args.time_delta_value)
+            last_change_time = last_change_time - datetime.timedelta(days=args.time_delta_value)
         query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
 
-    bugs = bsu.query_bugs(query)
-    print(f"Number of BZ to update: {len(bugs)}")
-    print("Index, Bug ID, before, after")
-    for idx, bug in enumerate(bugs):
-        bz = bsu.get_bug_score(bug.id)
-        print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
-        bz.update()
+    return query
+
+
+def main():
+    args = check_arguments()
+    query = make_query(args)
+
+    bz_api = RHBugzilla(url=URL, api_key=args.key)
+
+    bsu = BugScoreUpdater(bz_api)
+    bsu.perform_bug_score_updates(query)
 
 
 if __name__ == "__main__":
