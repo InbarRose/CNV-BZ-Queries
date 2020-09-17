@@ -9,13 +9,24 @@ import datetime
 # import bugzilla
 from bugzilla.rhbugzilla import RHBugzilla
 
+INCLUDE_FIELDS = ['_default', '_custom', 'flags', 'external_bugs']
+
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
-# constants
+# Constants
 URL = "bugzilla.redhat.com"
 NO_TICKETS_KW = "NoActiveCustomerTickets"
+PRODUCT_NAME = 'Container Native Virtualization (CNV)'
+VALID_BUG_STATUS_LIST = [
+    'NEW',
+    'ASSIGNED',
+    'POST',
+    'MODIFIED',
+    'ON_QA',
+    'VERIFIED'
+]
 
 # Scores
 REGRESSION = 600
@@ -64,14 +75,26 @@ class BugScoreUpdater(object):
         self.bz_api = bz_api
 
     def get_bug_score(self, bz_id):
-        bug = self.bz_api.getbug(bz_id, include_fields=['_default', '_custom', 'flags', 'external_bugs'])
+        bug = self.bz_api.getbug(bz_id, include_fields=INCLUDE_FIELDS)
         return BugScore(bug, self.bz_api)
 
     def query_bugs(self, query):
         bugs = self.bz_api.query(query)
         return bugs
 
-    def perform_bug_score_updates(self, query):
+    @staticmethod
+    def make_query(last_change_time=None):
+        query = {
+            'bug_status': VALID_BUG_STATUS_LIST,
+            'product': PRODUCT_NAME,
+            'include_fields': INCLUDE_FIELDS
+        }
+        if last_change_time:
+            query['last_change_time'] = last_change_time
+        return query
+
+    def perform_bug_score_updates(self, last_change_time=None):
+        query = self.make_query(last_change_time)
         bugs = self.query_bugs(query)
         print(f"Number of BZ to update: {len(bugs)}")
         print("Index, Bug ID, before, after")
@@ -203,7 +226,7 @@ def utc_format(dt, timespec='milliseconds'):
     return iso_str.replace('+00:00', 'Z')
 
 
-def check_arguments():
+def parse_arguments():
     parser = argparse.ArgumentParser(description=f'{__file__} command line arguments')
     parser.add_argument('-k', '--key', required=True, type=str, action=EnvDefault,
                         envvar='BZ_API_KEY',
@@ -215,70 +238,48 @@ def check_arguments():
                         envvar='TIME_DELTA_VALUE',
                         help='The time delta value: number of [hours|days]. '
                              'For hours use 1 to 23, and for days use 1 to 30.')
-    parser_args = parser.parse_args()
+    args = parser.parse_args()
 
-    # check passed arguments
+    # check time delta arguments are valid
     valid_time_delta_params = ['hours', 'days']
     valid_hours = [1, 23]
     valid_days = [1, 30]
 
-    error_msg = ""
+    if args.time_delta_param is not None and args.time_delta_param not in valid_time_delta_params:
+        parser.error(f"Invalid time_delta_param. Valid values include: {valid_time_delta_params}")
 
-    if parser_args.time_delta_param is not None:
-        if parser_args.time_delta_param in valid_time_delta_params:
-            if parser_args.time_delta_value is None:
-                error_msg = "The time_delta_value must be specified"
-            else:
-                if parser_args.time_delta_param == "hours":
-                    if not valid_hours[0] <= parser_args.time_delta_value <= valid_hours[1]:
-                        error_msg = f"For hours use values from {valid_hours[0]} tp {valid_hours[1]}"
-                else:
-                    if not valid_days[0] <= parser_args.time_delta_value <= valid_days[1]:
-                        error_msg = f"For days use values from {valid_days[0]} to {valid_days[1]}"
-        else:
-            error_msg = f"Invalid time_delta_param. Valid values include: {valid_time_delta_params}"
+    if args.time_delta_param is not None and args.time_delta_value is None:
+        parser.error("The time_delta_value must be specified")
 
-    if error_msg:
-        print(error_msg)
-        parser.print_help()
-        parser.exit(1)
-    else:
-        return parser_args
+    if args.time_delta_param == "hours" and not valid_hours[0] <= args.time_delta_value <= valid_hours[1]:
+        parser.error(f"For hours use values from {valid_hours[0]} to {valid_hours[1]}")
 
+    if args.time_delta_param == "days" and not valid_days[0] <= args.time_delta_value <= valid_days[1]:
+        parser.error(f"For days use values from {valid_days[0]} to {valid_days[1]}")
 
-def make_query(args):
-    query = {
-        'bug_status': [
-            'NEW', 'ASSIGNED', 'POST', 'MODIFIED', 'ON_QA', 'VERIFIED'
-        ],
-        'product': 'Container Native Virtualization (CNV)',
-        'include_fields': ['_default', '_custom', 'flags', 'external_bugs']
-    }
-
-    # check to see if the user specified a time delta for the query
-    last_change_time = datetime.datetime.now()
-    if args.time_delta_param is not None:
+    # use time delta arguments
+    if args.time_delta_param is not None and args.time_delta_value is not None:
+        # convert time delta into UTC formatted string representing a time in the past according to the specified delta
         if args.time_delta_param == "hours":
-            last_change_time = last_change_time - datetime.timedelta(hours=args.time_delta_value)
+            delta = datetime.datetime.now() - datetime.timedelta(hours=args.time_delta_value)
         else:
-            last_change_time = last_change_time - datetime.timedelta(days=args.time_delta_value)
-        query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
+            delta = datetime.datetime.now() - datetime.timedelta(days=args.time_delta_value)
+        last_change_time = utc_format(delta, timespec='seconds')
+    else:
+        last_change_time = None
 
-    return query
+    return args.key, last_change_time
 
 
-def main():
-    args = check_arguments()
-    query = make_query(args)
-
-    bz_api = RHBugzilla(url=URL, api_key=args.key)
+def main(key, last_change_time=None):
+    bz_api = RHBugzilla(url=URL, api_key=key)
 
     bsu = BugScoreUpdater(bz_api)
-    bsu.perform_bug_score_updates(query)
+    bsu.perform_bug_score_updates(last_change_time)
 
 
 if __name__ == "__main__":
     try:
-        main()
+        main(*parse_arguments())
     except Exception as exc:
         print(f"exception in main...{exc}")
