@@ -72,7 +72,7 @@ class BugScore(object):
         if 'Regression' in self.bug.keywords:
             score = REGRESSION
         # if score:
-        # print("Calculation debugs: Regression keyword: {}".format(score))
+        #     print("Calculation debugs: Regression keyword: {}".format(score))
         return score
 
     def calc_blocker(self):
@@ -80,7 +80,7 @@ class BugScore(object):
         if self.bug.get_flag_status('blocker') is not None:
             score = BLOCKER
         # if score:
-        # print("Calculation debugs: Blocker: {}".format(score))
+        #     print("Calculation debugs: Blocker: {}".format(score))
         return score
 
     def calc_automation_blocker(self):
@@ -97,8 +97,7 @@ class BugScore(object):
         if 'CEEBumpPMScore' in self.bug.cf_internal_whiteboard:
             score = CEEBumpPMScore
         # if score:
-        #    print(
-        #        "Calculation debugs: CEEBumpPMScore internal whiteboard: {}".format(score))
+        #    print("Calculation debugs: CEEBumpPMScore internal whiteboard: {}".format(score))
         return score
 
     def calc_cir_flag(self):
@@ -148,13 +147,11 @@ class BugScore(object):
                     ticket_totals += CUSTOMER_TICKET_OPEN
                     if NO_TICKETS_KW in self.bug.cf_internal_whiteboard:
                         foo = self.bug.cf_internal_whiteboar
-                        foo = foo.replace(", " + NO_TICKETS_KW, "").replace(NO_TICKETS_KW, "")
+                        foo = foo.replace(f", {NO_TICKETS_KW}", "").replace(NO_TICKETS_KW, "")
                         self.bug.cf_internal_whiteboard = foo
                         print("    NoCustomerTickets flag removed")
-                        bz_api.update_bugs(self.bug.id, {
-                            'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
-                            'nomail': 1}
-                                           )
+                        bz_api.update_bugs(self.bug.id,
+                                           {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
         if ticket_open == 0 and ticket_count != 0:
             if NO_TICKETS_KW not in self.bug.cf_internal_whiteboard:
                 if self.bug.cf_internal_whiteboard.strip() == "":
@@ -162,10 +159,8 @@ class BugScore(object):
                 else:
                     self.bug.cf_internal_whiteboard = self.bug.cf_internal_whiteboard + ", " + NO_TICKETS_KW
                 print("    NoCustomerTickets flag added")
-                bz_api.update_bugs(self.bug.id, {
-                    'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
-                    'nomail': 1}
-                                   )
+                bz_api.update_bugs(self.bug.id,
+                                   {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
         score = ticket_count * ticket_totals
         # if score:
         #    print("Calculation debugs: Tickets: {}".format(score))
@@ -185,7 +180,7 @@ class BugScore(object):
 
     def update(self):
         score = self.calc_score()
-        print("    New Score   = %s" % score)
+        print(f"    New Score   = {score}")
         if int(self.bug.cf_pm_score) != score:
             bz_api.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
             print("    New score was updated")
@@ -217,11 +212,11 @@ def verify_parameters():
 
 
 def get_usage():
-    return "usage " + __file__ + "  <BUGZILLA_API_KEY>"
+    return f"usage {__file__} <BUGZILLA_API_KEY>"
 
 
 def utc_format(dt, timespec='milliseconds'):
-    # """convert datetime to string in UTC format (YYYY-mm-ddTHH:MM:SS.mmmZ)"""
+    """convert datetime to string in UTC format (YYYY-mm-ddTHH:MM:SS.mmmZ)"""
     iso_str = dt.astimezone(timezone.utc).isoformat('T', timespec)
     return iso_str.replace('+00:00', 'Z')
 
@@ -258,14 +253,14 @@ def check_arguments():
             else:
                 if parser_args.time_delta_param == "hours":
                     if parser_args.time_delta_value < valid_hours[0] or parser_args.time_delta_value > valid_hours[1]:
-                        error_msg = "For hours use values from " + str(valid_hours[0]) + " to " + str(valid_hours[1])
+                        error_msg = f"For hours use values from {valid_hours[0]} tp {valid_hours[1]}"
                 else:
                     if parser_args.time_delta_value < valid_days[0] or parser_args.time_delta_value > valid_days[1]:
-                        error_msg = "For days use values from " + str(valid_days[0]) + " to " + str(valid_days[1])
+                        error_msg = f"For days use values from {valid_days[0]} to {valid_days[1]}"
         else:
-            error_msg = "Invalid time_delta_param. Valid values include: " + str(valid_time_delta_params)
+            error_msg = f"Invalid time_delta_param. Valid values include: {valid_time_delta_params}"
 
-    if error_msg != "":
+    if error_msg:
         print(error_msg)
         parser.print_help()
         parser.exit(1)
@@ -304,15 +299,12 @@ if __name__ == "__main__":
             query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
 
         bugs = bz_api.query(query)
-        print("Number of BZ to update: %s" % len(bugs))
-        print("Bug ID, before, after")
-        i = 1
-        for bug in bugs:
-            # print(str(i) + "," + str(bug.id))
-            # print(bug._bug_fields)
+        print(f"Number of BZ to update: {len(bugs)}")
+        print("Index, Bug ID, before, after")
+        for idx, bug in enumerate(bugs):
             bz = BugScore(bug.id)
-            print(str(i) + "," + str(bug.id) + "," + bug.cf_pm_score + "," + str(bz.calc_score()))
+            print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
             bz.update()
-            i = i + 1
+
     except Exception as exc:
-        print("exception in main..." + str(exc))
+        print(f"exception in main...{exc}")
