@@ -3,12 +3,9 @@
 from __future__ import division, print_function
 import ssl
 
-from pdb import set_trace
 # import bugzilla
-
 from bugzilla.rhbugzilla import RHBugzilla
 
-import sys
 from datetime import datetime, timezone, timedelta
 
 import argparse
@@ -123,20 +120,6 @@ class BugScore(object):
         #    print("Calculation debugs: cee_cir+ flag: {}".format(score))
         return score
 
-    def calc_ceecir(self):
-        score = 0
-        if 'CEECIR' in self.bug.cf_internal_whiteboard:
-            internal_whiteboard = self.bug.cf_internal_whiteboard.split()
-
-            for x in internal_whiteboard:
-                if "CEECIR" in x:
-                    set_trace()
-                    score = int(x.strip(",").strip("CEECIR_"))
-        # if score:
-        #    print("The only thing I have a question on is finding info about the on debugs: "
-        #          "CEECIR_x in internal whiteboard: {}".format(score))
-        return score
-
     def calc_severity(self):
         # if self.bug.severity != "unspecified":
         #    print("Calculation debugs: Severity score: {}".format(SEVERITY_SCORE[self.bug.severity]))
@@ -204,42 +187,10 @@ class BugScore(object):
             print("    New score was not updated")
 
 
-# verify parameters
-# - must have specified... 
-#   - config file
-def verify_parameters():
-    try:
-        # print (len(sys.argv))
-        if len(sys.argv) <= 1:
-            # print("we are in trouble....")
-            raise ValueError("invalid number of arguments...")
-        else:
-            pass
-            # print("we are on a good path....")
-            # raise Exception("Just testing...")
-    except ValueError as e:
-        print(str(e))
-        print(get_usage())
-        raise
-    except Exception as e:
-        print(str(e))
-        print("Something else went wrong")
-        raise
-
-
-def get_usage():
-    return f"usage {__file__} <BUGZILLA_API_KEY>"
-
-
 def utc_format(dt, timespec='milliseconds'):
     """convert datetime to string in UTC format (YYYY-mm-ddTHH:MM:SS.mmmZ)"""
     iso_str = dt.astimezone(timezone.utc).isoformat('T', timespec)
     return iso_str.replace('+00:00', 'Z')
-
-
-def from_utc_format(utc_str, tz=None):
-    iso_str = utc_str.replace('Z', '+00:00')
-    return datetime.fromisoformat(iso_str).astimezone(tz)
 
 
 def check_arguments():
