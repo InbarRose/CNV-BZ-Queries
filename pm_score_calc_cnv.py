@@ -2,7 +2,7 @@
 
 from __future__ import division, print_function
 import ssl
-from parser import parser
+#from parser import parser
 
 from pdb import set_trace
 # import bugzilla
