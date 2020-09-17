@@ -62,10 +62,25 @@ PRIORITY_SCORE = {
 }
 
 
-class BugScore(object):
-    def __init__(self, bz_id):
+class BugScoreUpdater(object):
 
-        self.bug = bz_api.getbug(bz_id, include_fields=['_default', '_custom', 'flags', 'external_bugs'])
+    def __init__(self, bz_api) -> None:
+        super().__init__()
+        self.bz_api = bz_api
+
+    def get_bug_score(self, bz_id):
+        bug = self.bz_api.getbug(bz_id, include_fields=['_default', '_custom', 'flags', 'external_bugs'])
+        return BugScore(bug, self.bz_api)
+
+    def query_bugs(self, query):
+        bugs = self.bz_api.query(query)
+        return bugs
+
+
+class BugScore(object):
+    def __init__(self, bug, bz_api):
+        self.bug = bug
+        self.bz_api = bz_api
 
     def calc_regression(self):
         score = 0
@@ -150,8 +165,9 @@ class BugScore(object):
                         foo = foo.replace(f", {NO_TICKETS_KW}", "").replace(NO_TICKETS_KW, "")
                         self.bug.cf_internal_whiteboard = foo
                         print("    NoCustomerTickets flag removed")
-                        bz_api.update_bugs(self.bug.id,
-                                           {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
+                        self.bz_api.update_bugs(self.bug.id,
+                                                {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
+                                                 'nomail': 1})
         if ticket_open == 0 and ticket_count != 0:
             if NO_TICKETS_KW not in self.bug.cf_internal_whiteboard:
                 if self.bug.cf_internal_whiteboard.strip() == "":
@@ -159,8 +175,8 @@ class BugScore(object):
                 else:
                     self.bug.cf_internal_whiteboard = self.bug.cf_internal_whiteboard + ", " + NO_TICKETS_KW
                 print("    NoCustomerTickets flag added")
-                bz_api.update_bugs(self.bug.id,
-                                   {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
+                self.bz_api.update_bugs(self.bug.id,
+                                        {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
         score = ticket_count * ticket_totals
         # if score:
         #    print("Calculation debugs: Tickets: {}".format(score))
@@ -182,7 +198,7 @@ class BugScore(object):
         score = self.calc_score()
         print(f"    New Score   = {score}")
         if int(self.bug.cf_pm_score) != score:
-            bz_api.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
+            self.bz_api.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
             print("    New score was updated")
         else:
             print("    New score was not updated")
@@ -268,43 +284,40 @@ def check_arguments():
         return parser_args
 
 
+def main():
+    args = check_arguments()
+
+    bz_api = RHBugzilla(url=URL, api_key=args.key)
+    bsu = BugScoreUpdater(bz_api)
+
+    query = {
+        'bug_status': [
+            'NEW', 'ASSIGNED', 'POST', 'MODIFIED', 'ON_QA', 'VERIFIED'
+        ],
+        'product': 'Container Native Virtualization (CNV)',
+        'include_fields': ['_default', '_custom', 'flags', 'external_bugs']
+    }
+
+    # check to see if the user specified a time delta for the query
+    last_change_time = datetime.now()
+    if args.time_delta_param is not None:
+        if args.time_delta_param == "hours":
+            last_change_time = last_change_time - timedelta(hours=args.time_delta_value)
+        else:
+            last_change_time = last_change_time - timedelta(days=args.time_delta_value)
+        query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
+
+    bugs = bsu.query_bugs(query)
+    print(f"Number of BZ to update: {len(bugs)}")
+    print("Index, Bug ID, before, after")
+    for idx, bug in enumerate(bugs):
+        bz = bsu.get_bug_score(bug.id)
+        print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
+        bz.update()
+
+
 if __name__ == "__main__":
-    #    main()
-
-    # def main():
-    # verify parameters
     try:
-        args = check_arguments()
-        in_api_key = args.key
-
-        # bz_api = RHBugzilla(url=URL, user=_user, password=_password)
-
-        bz_api = RHBugzilla(url=URL, api_key=in_api_key)
-
-        query = {
-            'bug_status': [
-                'NEW', 'ASSIGNED', 'POST', 'MODIFIED', 'ON_QA', 'VERIFIED'
-            ],
-            'product': 'Container Native Virtualization (CNV)',
-            'include_fields': ['_default', '_custom', 'flags', 'external_bugs']
-        }
-
-        # check to see if the user specified a time delta for the query
-        last_change_time = datetime.now()
-        if args.time_delta_param is not None:
-            if args.time_delta_param == "hours":
-                last_change_time = last_change_time - timedelta(hours=args.time_delta_value)
-            else:
-                last_change_time = last_change_time - timedelta(days=args.time_delta_value)
-            query['last_change_time'] = utc_format(last_change_time, timespec='seconds')
-
-        bugs = bz_api.query(query)
-        print(f"Number of BZ to update: {len(bugs)}")
-        print("Index, Bug ID, before, after")
-        for idx, bug in enumerate(bugs):
-            bz = BugScore(bug.id)
-            print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
-            bz.update()
-
+        main()
     except Exception as exc:
         print(f"exception in main...{exc}")
