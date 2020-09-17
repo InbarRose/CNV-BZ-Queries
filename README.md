@@ -6,6 +6,14 @@ This repo contains a list of scripts used to obtain/update information in bugzil
 
 
 ## Pre-Requisites
+### Python
+Install bugzilla module. You may need to do this using 
+```
+dnf install python3-bugzilla
+  or
+sudo dnf install python3-bugzilla
+```
+### Bugzilla
 * A bugzilla account with rights to update the cf_pm_score field.
 * A bugzilla API Key. See *Creating a Bugzilla API Key* for instructions on how to do this.
 
