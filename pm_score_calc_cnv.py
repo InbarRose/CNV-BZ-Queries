@@ -68,15 +68,16 @@ class EnvDefault(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-class BugScoreUpdater(object):
+class BZBugScoreUpdater(object):
+    """class for orchestrating the PM score updates on bugs"""
 
     def __init__(self, bz_api) -> None:
         super().__init__()
         self.bz_api = bz_api
 
-    def get_bug_score(self, bz_id):
+    def get_bz_bug_scorer(self, bz_id):
         bug = self.bz_api.getbug(bz_id, include_fields=INCLUDE_FIELDS)
-        return BugScore(bug, self.bz_api)
+        return BZBugScorer(bug, self.bz_api)
 
     def query_bugs(self, query):
         bugs = self.bz_api.query(query)
@@ -96,68 +97,77 @@ class BugScoreUpdater(object):
     def perform_bug_score_updates(self, last_change_time=None):
         query = self.make_query(last_change_time)
         bugs = self.query_bugs(query)
-        print(f"Number of BZ to update: {len(bugs)}")
+        print(f"Number of BZ Bugs to update: {len(bugs)}")
         print("Index, Bug ID, before, after")
         for idx, bug in enumerate(bugs):
-            bz = self.get_bug_score(bug.id)
-            print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz.calc_score()}")
-            bz.update()
+            bz_bs = self.get_bz_bug_scorer(bug.id)
+            bz_bs.calc_score()
+            print(f"{idx}, {bug.id}, {bug.cf_pm_score}, {bz_bs.score}")
+            bz_bs.update()
 
 
-class BugScore(object):
-    def __init__(self, bug, bz_api):
+class BZBugScorer(object):
+    """class which calculates and updates the PM score"""
+
+    def __init__(self, bug, bz_api, debug_mode=False):
+        self.score = None
         self.bug = bug
         self.bz_api = bz_api
+        self.debug_mode = debug_mode
+
+    def debug_msg(self, msg):
+        if self.debug_mode:
+            print(msg)
 
     def calc_regression(self):
         score = 0
         if 'Regression' in self.bug.keywords:
             score = REGRESSION
-        # if score:
-        #     print("Calculation debugs: Regression keyword: {}".format(score))
+        if score:
+            self.debug_msg(f"Calculation debugs: Regression keyword: {score}")
         return score
 
     def calc_blocker(self):
         score = 0
         if self.bug.get_flag_status('blocker') is not None:
             score = BLOCKER
-        # if score:
-        #     print("Calculation debugs: Blocker: {}".format(score))
+        if score:
+            self.debug_msg("Calculation debugs: Blocker: {}".format(score))
         return score
 
     def calc_automation_blocker(self):
         score = 0
         if 'AutomationBlocker' in self.bug.keywords:
             score = AUTOMATION_BLOCKER
-        # if score:
-        #    print("Calculation debugs: Automation Blocker: {}".format(score))
+        if score:
+            self.debug_msg(f"Calculation debugs: Automation Blocker: {score}")
         return score
 
     def calc_cee(self):
         score = 0
-        # print('INTERNAL: %s' % self.bug.cf_internal_whiteboard)
+        self.debug_msg('INTERNAL: %s' % self.bug.cf_internal_whiteboard)
         if 'CEEBumpPMScore' in self.bug.cf_internal_whiteboard:
             score = CEEBumpPMScore
-        # if score:
-        #    print("Calculation debugs: CEEBumpPMScore internal whiteboard: {}".format(score))
+        if score:
+            self.debug_msg(f"Calculation debugs: CEEBumpPMScore internal whiteboard: {score}")
         return score
 
     def calc_cir_flag(self):
         score = 0
         if self.bug.get_flag_status('cee_cir') == '+':
             score = CIR_FLAG
-        # if score:
-        #    print("Calculation debugs: cee_cir+ flag: {}".format(score))
+        if score:
+            self.debug_msg("Calculation debugs: cee_cir+ flag: {}".format(score))
         return score
 
     def calc_severity(self):
-        # if self.bug.severity != "unspecified":
-        #    print("Calculation debugs: Severity score: {}".format(SEVERITY_SCORE[self.bug.severity]))
+        if self.bug.severity != "unspecified":
+            self.debug_msg(f"Calculation debugs: Severity score: {SEVERITY_SCORE[self.bug.severity]}")
         return SEVERITY_SCORE[self.bug.severity]
 
     def calc_priority(self):
-        # if self.bug.priority != "unspecified":
-        #    print("Calculation debugs: Priority score: {}".format(PRIORITY_SCORE[self.bug.priority]))
+        if self.bug.priority != "unspecified":
+            self.debug_msg(f"Calculation debugs: Priority score: {PRIORITY_SCORE[self.bug.priority]}")
         return PRIORITY_SCORE[self.bug.priority]
 
     def calc_tickets(self):
@@ -178,6 +188,7 @@ class BugScore(object):
                         foo = foo.replace(f", {NO_TICKETS_KW}", "").replace(NO_TICKETS_KW, "")
                         self.bug.cf_internal_whiteboard = foo
                         print("    NoCustomerTickets flag removed")
+                        # TODO: Why are we updating the bug here?
                         self.bz_api.update_bugs(self.bug.id,
                                                 {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard,
                                                  'nomail': 1})
@@ -186,13 +197,14 @@ class BugScore(object):
                 if self.bug.cf_internal_whiteboard.strip() == "":
                     self.bug.cf_internal_whiteboard = NO_TICKETS_KW
                 else:
-                    self.bug.cf_internal_whiteboard = self.bug.cf_internal_whiteboard + ", " + NO_TICKETS_KW
+                    self.bug.cf_internal_whiteboard = f"{self.bug.cf_internal_whiteboard}, {NO_TICKETS_KW}"
                 print("    NoCustomerTickets flag added")
+                # TODO: Why are we updating the bug here?
                 self.bz_api.update_bugs(self.bug.id,
                                         {'cf_internal_whiteboard': self.bug.cf_internal_whiteboard, 'nomail': 1})
         score = ticket_count * ticket_totals
-        # if score:
-        #    print("Calculation debugs: Tickets: {}".format(score))
+        if score:
+            self.debug_msg(f"Calculation debugs: Tickets: {score}")
         return score
 
     def calc_score(self):
@@ -207,12 +219,14 @@ class BugScore(object):
             self.calc_cee(),
             self.calc_cir_flag()
         ]
-        return sum(score)
+        self.score = sum(score)
+        return self.score
 
     def update(self):
         """perform score calculation and then update bug with new score"""
-        score = self.calc_score()
+        score = self.score or self.calc_score()  # do not calculate again if we already have the score
         print(f"    New Score   = {score}")
+        self.debug_msg(f"    Old Score   = {int(self.bug.cf_pm_score)}")
         if int(self.bug.cf_pm_score) != score:
             self.bz_api.update_bugs(self.bug.id, {'cf_pm_score': score, 'nomail': 1})
             print("    New score was updated")
@@ -274,12 +288,12 @@ def parse_arguments():
 def main(key, last_change_time=None):
     bz_api = RHBugzilla(url=URL, api_key=key)
 
-    bsu = BugScoreUpdater(bz_api)
-    bsu.perform_bug_score_updates(last_change_time)
+    bz_bsu = BZBugScoreUpdater(bz_api)
+    bz_bsu.perform_bug_score_updates(last_change_time)
 
 
 if __name__ == "__main__":
     try:
         main(*parse_arguments())
     except Exception as exc:
-        print(f"exception in main...{exc}")
+        print(f"exception in main... {exc}")
